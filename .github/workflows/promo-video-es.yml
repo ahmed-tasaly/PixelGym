@@ -1,0 +1,36 @@
+name: "Build Promo Video Spanish"
+
+on: workflow_dispatch
+
+jobs:
+  promo-video-es:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+      - name: Installing unzip
+        run: sudo apt-get install -y unzip
+      - name: Unzipping the promo-video-es.zip file
+        run: unzip promo-video-es.zip -d tmpfolder20220805
+      - name: Checking if a VideoMaker configuration exists
+        run: |
+             if [ $(wc -c <"./tmpfolder20220805/promo-video-es/input_video.cfg") -ge 5 ]
+               then
+                 echo "VideoMaker configuration file found."
+               else
+                 echo "VideoMaker configuration file not found."
+                 exit 1
+             fi
+      - name: Installing ffmpeg
+        run: sudo apt-get install -y ffmpeg
+      - name: Making the VideoMaker script executable
+        run: chmod +x ./.github/workflows/videomaker.sh
+      - name: Creating the video file
+        run: cd tmpfolder20220805/promo-video-es && ../../.github/workflows/videomaker.sh && cp output.mp4 promo-video-es.mp4
+      - name: Attaching the created video this workflow
+        uses: actions/upload-artifact@v3
+        with:
+          name: promo-video-es
+          path: tmpfolder20220805/promo-video-es/promo-video-es.mp4

@@ -1,0 +1,168 @@
+name: Build App iOS
+
+on: workflow_dispatch
+
+env:
+  IOS_SCHEME: "PixelGym"
+  IOS_APP_FOLDER: "PixelGym"
+  IOS_PROFILE_DEV_P12_FILE: ${{ secrets.IOS_PROFILE_DEV_P12_FILE }}
+  IOS_PROFILE_DEV_P12_PASSWORD: ${{ secrets.IOS_PROFILE_DEV_P12_PASSWORD }}
+  IOS_PROFILE_DEV_FILE: ${{ secrets.IOS_PROFILE_DEV_FILE }}
+  IOS_PROFILE_DIST_P12_FILE: ${{ secrets.IOS_PROFILE_DIST_P12_FILE }}
+  IOS_PROFILE_DIST_P12_PASSWORD: ${{ secrets.IOS_PROFILE_DIST_P12_PASSWORD }}
+  IOS_PROFILE_DIST_FILE: ${{ secrets.IOS_PROFILE_DIST_FILE }}
+
+jobs:
+  app-builder-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+      - name: Setting the environment
+        run: |
+          # CREATING THE VARIABLES
+          CERT_DEV_PATH=$RUNNER_TEMP/dev.p12
+          CERT_DIST_PATH=$RUNNER_TEMP/dist.p12
+          PROV_DEV_PATH=$RUNNER_TEMP/dev.mobileprovision
+          PROV_DIST_PATH=$RUNNER_TEMP/dist.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # IMPORTING THE CERTIFICATES AND THE PROVISIONING PROFILES FROM GITHUB SECRETS
+          echo -n "$IOS_PROFILE_DEV_P12_FILE" | base64 --decode --output $CERT_DEV_PATH
+          echo -n "$IOS_PROFILE_DIST_P12_FILE" | base64 --decode --output $CERT_DIST_PATH
+          echo -n "$IOS_PROFILE_DEV_FILE" | base64 --decode --output $PROV_DEV_PATH
+          echo -n "$IOS_PROFILE_DIST_FILE" | base64 --decode --output $PROV_DIST_PATH
+
+          # CREATING A TEMPORARY KEYCHAIN
+          security create-keychain -p temppassword $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p temppassword $KEYCHAIN_PATH
+
+          # IMPORTING THE CERTIFICATES TO THE TEMPORARY KEYCHAIN
+          security import $CERT_DEV_PATH -P "$IOS_PROFILE_DEV_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $CERT_DIST_PATH -P "$IOS_PROFILE_DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # APPLYING THE PROVISIONING PROFILES
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROV_DEV_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROV_DIST_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: Building the iOS App
+        run: |
+          cd ios && xcodebuild \
+          -scheme "$IOS_SCHEME" \
+          clean archive \
+          -archivePath $PWD/build/App.xcarchive \
+          -configuration Release \
+          -allowProvisioningUpdates
+      - name: Building the IPA file
+        run: |
+          cd ios && xcodebuild \
+          -exportArchive \
+          -archivePath $PWD/build/App.xcarchive \
+          -exportOptionsPlist ./"$IOS_APP_FOLDER"/ExportOptions.plist \
+          -exportPath ./"$IOS_APP_FOLDER"/exportedIPA \
+          -allowProvisioningUpdates
+      - name: Attaching the IPA file to this workflow
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release-ipa
+          path: ./ios/${{ env.IOS_APP_FOLDER }}/exportedIPA/${{ env.IOS_SCHEME }}.ipa
+      - name: Deleting the keychain and the provisioning profiles
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+          rm ~/Library/MobileDevice/Provisioning\ Profiles/dev.mobileprovision
+          rm ~/Library/MobileDevice/Provisioning\ Profiles/dist.mobileprovision
+
+# ------------------------------------------------------------------------------------------------------
+#
+# WHAT THIS WORKFLOW DOES?
+#
+# This workflow will build an IPA file and that file is going to be attached as an Artifact (ZIP file)
+# and available for downloading in that workflow Summary.
+#
+# ------------------------------------------------------------------------------------------------------
+#
+# HOW CAN I SET THIS WORKFLOW?
+#
+# This is a one time operation. You have to go to your repository and Settings/Secrets/Actions and
+# there you have to create the following secrets:
+#
+#    - IOS_PROFILE_DEV_P12_FILE (must contain your development certificate file in Base64)
+#    - IOS_PROFILE_DEV_P12_PASSWORD (must be a plain text with your development certificate password)
+#    - IOS_PROFILE_DIST_P12_FILE (must contain your distribution certificate file in Base64)
+#    - IOS_PROFILE_DIST_P12_PASSWORD (must be a plain text with your distribution certificate password)
+#    - IOS_PROFILE_DEV_FILE (must contain your development provisioning profile file in Base64)
+#    - IOS_PROFILE_DIST_FILE (must contain your distribution provisioning profile file in Base64)
+#
+# ------------------------------------------------------------------------------------------------------
+#
+# WHERE CAN I GET THE CERTIFICATES AND THE PROVISIONING PROFILES?
+#
+# The following details are mentioned on the assumption that you are on a Mac computer with Xcode
+# installed and that your developer account has distribution permission.
+#
+#
+# For getting your DEVELOPMENT certificate (.p12 file):
+#
+#    - Open Xcode.
+#    - Go to Preferences.
+#    - Go to Accounts.
+#    - Go to Manage Certificates.
+#    - Right click on your DEVELOPMENT certificate and click in Export.
+#    - A dialog for saving the .p12 file will appear.
+#    - Write a password for that .p12 file.
+#    - Use that password as the IOS_PROFILE_DEV_P12_PASSWORD value in GitHub secrets.
+#    - Convert that .p12 file to base64.
+#    - Use that base64 string as the IOS_PROFILE_DEV_P12_FILE value in GitHub secrets.
+#
+#
+# For getting your DISTRIBUTION certificate (.p12 file):
+#
+#    - Open Xcode.
+#    - Go to Preferences.
+#    - Go to Accounts.
+#    - Go to Manage Certificates.
+#    - Right click on your DISTRIBUTION certificate and click in Export.
+#    - A dialog for saving the .p12 file will appear.
+#    - Write a password for that .p12 file.
+#    - Use that password as the IOS_PROFILE_DIST_P12_PASSWORD value in GitHub secrets.
+#    - Convert that .p12 file to base64.
+#    - Use that base64 string as the IOS_PROFILE_DIST_P12_FILE value in GitHub secrets.
+#
+#
+# For getting your DEVELOPMENT provisioning profile (.mobileprovision file):
+#
+#    - Go to /Users/yourusername/Library/MobileDevice/Provisioning Profiles
+#    - There you will see several .mobileprovision files.
+#    - Select one of those .mobileprovision file and convert it to base64.
+#    - Use that base64 string as the IOS_PROFILE_DEV_FILE value in GitHub secrets.
+#
+#
+# For getting your DISTRIBUTION provisioning profile (.mobileprovision file):
+#
+#    - Go to /Users/yourusername/Library/MobileDevice/Provisioning Profiles
+#    - There you will see several .mobileprovision files.
+#    - Select another one of those .mobileprovision file and convert it to base64.
+#    - Use that base64 string as the IOS_PROFILE_DIST_FILE value in GitHub secrets.
+#
+#
+# NOTE: Maybe you could have several .mobileprovision files in that folder, but only two of those will
+# be the valid ones that will allow you to build the App and export the IPA using this workflow.
+#
+#
+# ------------------------------------------------------------------------------------------------------
+#
+# VERY IMPORTANT:
+#
+# The certificates and provisional profiles that are used for building an iOS App expires in 1 year.
+# You can check the expiration date of each one on Xcode or using App Store Connect by browsing to:
+#
+#    https://developer.apple.com/account/resources/certificates/list
+#
+# If this workflow at some moment doesn't work properly, that would mean that a certificate has expired
+# and you will have to repeat the tutorial described above in the "WHERE CAN I GET THE CERTIFICATES
+# AND..." section in order to fix it.
+#
