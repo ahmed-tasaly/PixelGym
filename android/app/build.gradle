@@ -3,14 +3,14 @@ plugins {
 }
 
 android {
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.pixelgym"
         minSdk 26
-        targetSdk 33
-        versionCode 20
-        versionName "1.5.13"
+        targetSdk 34
+        versionCode 21
+        versionName "1.5.14"
     }
 
     signingConfigs {
